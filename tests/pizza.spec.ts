@@ -5,7 +5,8 @@ import { Role, User } from '../src/service/pizzaService';
 async function basicInit(page: Page) {
   let loggedInUser: User | undefined;
   const validUsers: Record<string, User> = { 'd@jwt.com': { id: '3', name: 'Kai Chen', email: 'd@jwt.com', password: 'a', roles: [{ role: Role.Diner }] },
-                                             'a@jwt.com':{id: '4', name: 'Addy admin', email: 'a@jwt.com', password: 'b', roles:[{role: Role.Admin}]} };
+                                             'a@jwt.com':{id: '4', name: 'Addy admin', email: 'a@jwt.com', password: 'b', roles:[{role: Role.Admin}]},
+                                            'f@jwt.com':{id: '4', name: 'Franky Franchise', email: 'f@jwt.com', password: 'c', roles:[{role: Role.Franchisee}]} };
   const franchises = [
     {
       id: 2,
@@ -117,7 +118,7 @@ test('purchase with login', async ({ page }) => {
   await expect(page.getByText('0.008')).toBeVisible();
 });
 
-test('Add franchisee as admin', async({page}) =>{
+test('Add and remove franchisee as admin', async({page}) =>{
   await basicInit(page);
   await page.getByRole('link', { name: 'Login' }).click();
   await page.getByRole('textbox', { name: 'Email address' }).fill('a@jwt.com');
@@ -130,8 +131,31 @@ test('Add franchisee as admin', async({page}) =>{
   await page.getByRole('textbox', { name: 'franchisee admin email' }).click();
   await page.getByRole('textbox', { name: 'franchisee admin email' }).fill('d@jwt.com');
   await page.getByRole('button', { name: 'Create' }).click();
+  
+  const hotPizzaRow = page.getByRole('row').filter({ hasText: 'HotPizza' });
+  await expect(hotPizzaRow).toBeVisible();
+  await hotPizzaRow.getByRole('button', { name: 'Close' }).click();
+  await expect(page).toHaveURL(/close-franchise/);
   await page.getByRole('button', { name: 'Close' }).click();
+  await expect(page.getByRole('link', { name: 'admin-dashboard' })).toBeVisible();
+  
   await expect(page.getByRole('heading', { name: 'Franchises' })).toBeVisible();
-  await page.locator('div').filter({ hasText: 'Mama Ricci\'s' }).nth(2).click();
 
+
+});
+
+test("add and remove store as franchisee", async({page})=>{
+  await basicInit(page);
+  await page.getByRole('link', { name: 'Login' }).click();
+  await page.getByRole('textbox', { name: 'Email address' }).fill('f@jwt.com');
+  await page.getByRole('textbox', { name: 'Password' }).fill('c');
+  await page.getByRole('button', { name: 'Login' }).click();
+  await page.getByRole('navigation', { name: 'Global' }).getByRole('link', { name: 'Franchise' }).click();
+  await expect(page.getByRole('link', { name: 'franchise-dashboard' })).toBeVisible();
+  await page.getByRole('button', { name: 'Create store' }).click();
+  await page.getByRole('textbox', { name: 'store name' }).fill('Provo Store');
+  await page.getByRole('button', { name: 'Create' }).click();
+  await expect(page.getByRole('cell', { name: 'Provo Store' })).toBeVisible();
+  await page.getByRole('button', { name: 'Close' }).click();
+  await page.getByRole('button', { name: 'Close' }).click();
 })
