@@ -4,8 +4,21 @@ import { Role, User } from '../src/service/pizzaService';
 
 async function basicInit(page: Page) {
   let loggedInUser: User | undefined;
-  const validUsers: Record<string, User> = { 'd@jwt.com': { id: '3', name: 'Kai Chen', email: 'd@jwt.com', password: 'a', roles: [{ role: Role.Diner }] } };
-
+  const validUsers: Record<string, User> = { 'd@jwt.com': { id: '3', name: 'Kai Chen', email: 'd@jwt.com', password: 'a', roles: [{ role: Role.Diner }] },
+                                             'a@jwt.com':{id: '4', name: 'Addy admin', email: 'a@jwt.com', password: 'b', roles:[{role: Role.Admin}]} };
+  const franchises = [
+    {
+      id: 2,
+      name: 'LotaPizza',
+      stores: [
+        { id: 4, name: 'Lehi' },
+        { id: 5, name: 'Springville' },
+        { id: 6, name: 'American Fork' },
+      ],
+    },
+    { id: 3, name: 'PizzaCorp', stores: [{ id: 7, name: 'Spanish Fork' }] },
+    { id: 4, name: 'topSpot', stores: [] },
+  ];
   await page.route('*/**/api/auth', async (route) => {
     const loginReq = route.request().postDataJSON();
     const user = validUsers[loginReq.email];
@@ -36,24 +49,24 @@ async function basicInit(page: Page) {
     await route.fulfill({ json: menuRes });
   });
 
-  await page.route(/\/api\/franchise(\?.*)?$/, async (route) => {
-    const franchiseRes = {
-      franchises: [
-        {
-          id: 2,
-          name: 'LotaPizza',
-          stores: [
-            { id: 4, name: 'Lehi' },
-            { id: 5, name: 'Springville' },
-            { id: 6, name: 'American Fork' },
-          ],
-        },
-        { id: 3, name: 'PizzaCorp', stores: [{ id: 7, name: 'Spanish Fork' }] },
-        { id: 4, name: 'topSpot', stores: [] },
-      ],
-    };
-    expect(route.request().method()).toBe('GET');
-    await route.fulfill({ json: franchiseRes });
+await page.route(/\/api\/franchise(\/\d+)?(\?.*)?$/, async (route) => {
+    const method = route.request().method();
+
+    if (method === 'GET') {
+      await route.fulfill({ json: { franchises, more: false } });
+    } else if (method === 'POST') {
+      const req = route.request().postDataJSON();
+      const created = { id: 5, name: req.name, admins: req.admins, stores: [] };
+      franchises.push(created);
+      await route.fulfill({ json: created });
+    } else if (method === 'DELETE') {
+      const id = Number(route.request().url().match(/franchise\/(\d+)/)?.[1]);
+      const i = franchises.findIndex((f) => f.id === id);
+      if (i >= 0) franchises.splice(i, 1);
+      await route.fulfill({ json: { message: 'franchise deleted' } });
+    } else {
+      await route.fallback();
+    }
   });
 
   await page.route('*/**/api/order', async (route) => {
@@ -103,3 +116,22 @@ test('purchase with login', async ({ page }) => {
 
   await expect(page.getByText('0.008')).toBeVisible();
 });
+
+test('Add franchisee as admin', async({page}) =>{
+  await basicInit(page);
+  await page.getByRole('link', { name: 'Login' }).click();
+  await page.getByRole('textbox', { name: 'Email address' }).fill('a@jwt.com');
+  await page.getByRole('textbox', { name: 'Password' }).fill('b');
+  await page.getByRole('button', { name: 'Login' }).click();
+  await page.getByRole('link', { name: 'Admin' }).click();
+  await page.getByRole('button', { name: 'Add Franchise' }).click();
+  await page.getByRole('textbox', { name: 'franchise name' }).click();
+  await page.getByRole('textbox', { name: 'franchise name' }).fill('HotPizza');
+  await page.getByRole('textbox', { name: 'franchisee admin email' }).click();
+  await page.getByRole('textbox', { name: 'franchisee admin email' }).fill('d@jwt.com');
+  await page.getByRole('button', { name: 'Create' }).click();
+  await page.getByRole('button', { name: 'Close' }).click();
+  await expect(page.getByRole('heading', { name: 'Franchises' })).toBeVisible();
+  await page.locator('div').filter({ hasText: 'Mama Ricci\'s' }).nth(2).click();
+
+})
