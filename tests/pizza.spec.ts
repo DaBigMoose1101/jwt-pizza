@@ -36,20 +36,39 @@ async function basicInit(page: Page) {
       stores: [{ id: 8, name: 'Orem', totalRevenue: 0.05 }],
     },
   ];
-  await page.route('*/**/api/auth', async (route) => {
-    const loginReq = route.request().postDataJSON();
-    const user = validUsers[loginReq.email];
-    if (!user || user.password !== loginReq.password) {
-      await route.fulfill({ status: 401, json: { error: 'Unauthorized' } });
-      return;
+    await page.route('*/**/api/auth', async (route) => {
+    const method = route.request().method();
+
+    if (method === 'POST') {
+      // Register
+      const req = route.request().postDataJSON();
+      const newUser: User = {
+        id: String(Object.keys(validUsers).length + 10),
+        name: req.name,
+        email: req.email,
+        password: req.password,
+        roles: [{ role: Role.Diner }],
+      };
+      validUsers[req.email] = newUser;
+      loggedInUser = newUser;
+      await route.fulfill({ json: { user: newUser, token: 'abcdef' } });
+    } else if (method === 'PUT') {
+      // Login
+      const loginReq = route.request().postDataJSON();
+      const user = validUsers[loginReq.email];
+      if (!user || user.password !== loginReq.password) {
+        await route.fulfill({ status: 401, json: { error: 'Unauthorized' } });
+        return;
+      }
+      loggedInUser = user;
+      await route.fulfill({ json: { user, token: 'abcdef' } });
+    } else if (method === 'DELETE') {
+      // Logout
+      loggedInUser = undefined;
+      await route.fulfill({ json: { message: 'logout successful' } });
+    } else {
+      await route.fallback();
     }
-    loggedInUser = validUsers[loginReq.email];
-    const loginRes = {
-      user: loggedInUser,
-      token: 'abcdef',
-    };
-    expect(route.request().method()).toBe('PUT');
-    await route.fulfill({ json: loginRes });
   });
 
   await page.route('*/**/api/user/me', async (route) => {
@@ -135,6 +154,20 @@ test('login', async ({ page }) => {
 
   await expect(page.getByRole('link', { name: 'KC' })).toBeVisible();
 });
+
+test('register and log out', async({page})=>{
+  await basicInit(page);
+  await page.getByRole('link', { name: 'Register' }).click();
+  await page.getByRole('textbox', { name: 'Full name' }).fill('New customer');
+  await page.getByRole('textbox', { name: 'Email address' }).fill('nc@jwt.com');
+  await page.getByRole('textbox', { name: 'Password' }).fill('New');
+  await page.getByRole('button', { name: 'Register' }).click();
+  await expect(page.getByText('JWT Pizza', { exact: true })).toBeVisible();
+ 
+  await page.getByRole('link', { name: 'Logout' }).click();
+  await expect(page.getByRole('link', { name: 'Login' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Register' })).toBeVisible();
+})
 
 test('purchase with login', async ({ page }) => {
   await basicInit(page);
