@@ -211,7 +211,7 @@ test('Add and remove franchisee as admin', async({page}) =>{
   const hotPizzaRow = page.getByRole('row').filter({ hasText: 'HotPizza' });
   await expect(hotPizzaRow).toBeVisible();
   await hotPizzaRow.getByRole('button', { name: 'Close' }).click();
-  await expect(page).toHaveURL(/close-franchise/);
+  await expect(page.getByRole('button', { name: 'Close' })).toHaveCount(1);
   await page.getByRole('button', { name: 'Close' }).click();
   await expect(page.getByRole('link', { name: 'admin-dashboard' })).toBeVisible();
   
