@@ -4,10 +4,20 @@ import { Role, User } from '../src/service/pizzaService';
 
 async function basicInit(page: Page) {
   let loggedInUser: User | undefined;
-  const validUsers: Record<string, User> = { 'd@jwt.com': { id: '3', name: 'Kai Chen', email: 'd@jwt.com', password: 'a', roles: [{ role: Role.Diner }] },
-                                             'a@jwt.com':{id: '4', name: 'Addy admin', email: 'a@jwt.com', password: 'b', roles:[{role: Role.Admin}]},
-                                            'f@jwt.com':{id: '4', name: 'Franky Franchise', email: 'f@jwt.com', password: 'c', roles:[{role: Role.Franchisee}]} };
-  const franchises = [
+  type MockFranchise = {
+    id: number;
+    name: string;
+    admins?: { id?: string; name?: string; email: string }[];
+    stores: { id: number; name: string; totalRevenue?: number }[];
+  };
+
+  const validUsers: Record<string, User> = {
+    'd@jwt.com': { id: '3', name: 'Kai Chen', email: 'd@jwt.com', password: 'a', roles: [{ role: Role.Diner }] },
+    'a@jwt.com': { id: '4', name: 'Addy admin', email: 'a@jwt.com', password: 'b', roles: [{ role: Role.Admin }] },
+    'f@jwt.com': { id: '5', name: 'Franky Franchise', email: 'f@jwt.com', password: 'c', roles: [{ role: Role.Franchisee, objectId: '6' }] },
+  };
+
+  const franchises: MockFranchise[] = [
     {
       id: 2,
       name: 'LotaPizza',
@@ -19,6 +29,12 @@ async function basicInit(page: Page) {
     },
     { id: 3, name: 'PizzaCorp', stores: [{ id: 7, name: 'Spanish Fork' }] },
     { id: 4, name: 'topSpot', stores: [] },
+    {
+      id: 6,
+      name: 'FrankyPizza',
+      admins: [{ id: '5', name: 'Franky Franchise', email: 'f@jwt.com' }],
+      stores: [{ id: 8, name: 'Orem', totalRevenue: 0.05 }],
+    },
   ];
   await page.route('*/**/api/auth', async (route) => {
     const loginReq = route.request().postDataJSON();
@@ -50,21 +66,48 @@ async function basicInit(page: Page) {
     await route.fulfill({ json: menuRes });
   });
 
-await page.route(/\/api\/franchise(\/\d+)?(\?.*)?$/, async (route) => {
+  await page.route(/\/api\/franchise(\/\d+)?(\?.*)?$/, async (route) => {
     const method = route.request().method();
+    const idMatch = route.request().url().match(/franchise\/(\d+)/);
 
     if (method === 'GET') {
-      await route.fulfill({ json: { franchises, more: false } });
+      if (idMatch) {
+        // GET /api/franchise/:userId → franchises this user administers
+        const userId = idMatch[1];
+        const mine = franchises.filter((f) => f.admins?.some((a) => a.id === userId));
+        await route.fulfill({ json: mine });
+      } else {
+        // GET /api/franchise?page=... → admin list
+        await route.fulfill({ json: { franchises, more: false } });
+      }
     } else if (method === 'POST') {
       const req = route.request().postDataJSON();
-      const created = { id: 5, name: req.name, admins: req.admins, stores: [] };
+      const created: MockFranchise = { id: 5, name: req.name, admins: req.admins, stores: [] };
       franchises.push(created);
       await route.fulfill({ json: created });
-    } else if (method === 'DELETE') {
-      const id = Number(route.request().url().match(/franchise\/(\d+)/)?.[1]);
-      const i = franchises.findIndex((f) => f.id === id);
+    } else if (method === 'DELETE' && idMatch) {
+      const i = franchises.findIndex((f) => f.id === Number(idMatch[1]));
       if (i >= 0) franchises.splice(i, 1);
       await route.fulfill({ json: { message: 'franchise deleted' } });
+    } else {
+      await route.fallback();
+    }
+  });
+  await page.route(/\/api\/franchise\/\d+\/store(\/\d+)?$/, async (route) => {
+    const method = route.request().method();
+    const url = route.request().url();
+    const franchiseId = Number(url.match(/franchise\/(\d+)\/store/)?.[1]);
+    const franchise = franchises.find((f) => f.id === franchiseId);
+
+    if (method === 'POST') {
+      const req = route.request().postDataJSON();
+      const store = { id: 9, name: req.name, totalRevenue: 0 };
+      franchise?.stores.push(store);
+      await route.fulfill({ json: { id: store.id, franchiseId, name: req.name } });
+    } else if (method === 'DELETE') {
+      const storeId = Number(url.match(/store\/(\d+)/)?.[1]);
+      if (franchise) franchise.stores = franchise.stores.filter((s) => s.id !== storeId);
+      await route.fulfill({ json: { message: 'store deleted' } });
     } else {
       await route.fallback();
     }
@@ -156,6 +199,11 @@ test("add and remove store as franchisee", async({page})=>{
   await page.getByRole('textbox', { name: 'store name' }).fill('Provo Store');
   await page.getByRole('button', { name: 'Create' }).click();
   await expect(page.getByRole('cell', { name: 'Provo Store' })).toBeVisible();
+
+  const provoRow = page.getByRole('row').filter({ hasText: 'Provo Store' });
+  await provoRow.getByRole('button', { name: 'Close' }).click();
+  await expect(page).toHaveURL(/close-store/);
   await page.getByRole('button', { name: 'Close' }).click();
-  await page.getByRole('button', { name: 'Close' }).click();
-})
+
+  await expect(page.getByRole('cell', { name: 'Provo Store' })).not.toBeVisible();
+});
