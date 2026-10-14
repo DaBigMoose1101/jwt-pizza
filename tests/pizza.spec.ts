@@ -16,6 +16,10 @@ async function basicInit(page: Page) {
     'a@jwt.com': { id: '4', name: 'Addy admin', email: 'a@jwt.com', password: 'b', roles: [{ role: Role.Admin }] },
     'f@jwt.com': { id: '5', name: 'Franky Franchise', email: 'f@jwt.com', password: 'c', roles: [{ role: Role.Franchisee, objectId: '6' }] },
   };
+  // Filler diners so the admin user list spans more than one page (13 users total)
+  for (let i = 1; i <= 10; i++) {
+    validUsers[`diner${i}@jwt.com`] = { id: String(100 + i), name: `Diner ${i}`, email: `diner${i}@jwt.com`, password: 'x', roles: [{ role: Role.Diner }] };
+  }
 
   const franchises: MockFranchise[] = [
     {
@@ -74,6 +78,27 @@ async function basicInit(page: Page) {
   await page.route('*/**/api/user/me', async (route) => {
     expect(route.request().method()).toBe('GET');
     await route.fulfill({ json: loggedInUser });
+  });
+
+  await page.route(/\/api\/user(\/\d+)?(\?.*)?$/, async (route) => {
+    const method = route.request().method();
+    const url = new URL(route.request().url());
+    const idMatch = url.pathname.match(/\/api\/user\/(\d+)$/);
+
+    if (method === 'GET' && !idMatch) {
+      // GET /api/user?page=1&limit=10&name=* → paginated user list (pages start at 1)
+      const page = Number(url.searchParams.get('page') ?? 1);
+      const limit = Number(url.searchParams.get('limit') ?? 10);
+      const all = Object.values(validUsers).map(({ password, ...user }) => user);
+      const start = (page - 1) * limit;
+      await route.fulfill({ json: { users: all.slice(start, start + limit), more: all.length > start + limit } });
+    } else if (method === 'DELETE' && idMatch) {
+      const email = Object.keys(validUsers).find((k) => validUsers[k].id === idMatch[1]);
+      if (email) delete validUsers[email];
+      await route.fulfill({ json: { message: 'user deleted' } });
+    } else {
+      await route.fallback();
+    }
   });
 
   await page.route('*/**/api/order/menu', async (route) => {
@@ -239,4 +264,87 @@ test("add and remove store as franchisee", async({page})=>{
   await page.getByRole('button', { name: 'Close' }).click();
 
   await expect(page.getByRole('cell', { name: 'Provo Store' })).not.toBeVisible();
+});
+
+async function loginAsAdmin(page: Page) {
+  await page.getByRole('link', { name: 'Login' }).click();
+  await page.getByRole('textbox', { name: 'Email address' }).fill('a@jwt.com');
+  await page.getByRole('textbox', { name: 'Password' }).fill('b');
+  await page.getByRole('button', { name: 'Login' }).click();
+}
+
+test('admin views paginated list of users', async ({ page }) => {
+  await basicInit(page);
+  await loginAsAdmin(page);
+
+  const firstPageRequest = page.waitForRequest(/\/api\/user\?page=1&limit=10&name=\*$/);
+  await page.getByRole('link', { name: 'Admin' }).click();
+  await firstPageRequest;
+
+  await expect(page.getByRole('heading', { name: 'Users' })).toBeVisible();
+  const usersTable = page.getByRole('table', { name: 'Users' });
+  await expect(usersTable.locator('tbody tr')).toHaveCount(10);
+  await expect(usersTable).toContainText('Kai Chen');
+  await expect(usersTable).toContainText('d@jwt.com');
+  await expect(usersTable).toContainText('admin');
+  await expect(usersTable).toContainText('Diner 7');
+  await expect(usersTable).not.toContainText('Diner 8');
+  await expect(usersTable.getByRole('button', { name: '«' })).toBeDisabled();
+
+  const secondPageRequest = page.waitForRequest(/\/api\/user\?page=2&limit=10&name=\*$/);
+  await usersTable.getByRole('button', { name: '»' }).click();
+  await secondPageRequest;
+
+  await expect(usersTable.locator('tbody tr')).toHaveCount(3);
+  await expect(usersTable).toContainText('Diner 8');
+  await expect(usersTable).toContainText('Diner 10');
+  await expect(usersTable).not.toContainText('Kai Chen');
+  await expect(usersTable.getByRole('button', { name: '»' })).toBeDisabled();
+
+  await usersTable.getByRole('button', { name: '«' }).click();
+  await expect(usersTable).toContainText('Kai Chen');
+});
+
+test('admin deletes a user after confirming', async ({ page }) => {
+  await basicInit(page);
+  await loginAsAdmin(page);
+  await page.getByRole('link', { name: 'Admin' }).click();
+
+  const usersTable = page.getByRole('table', { name: 'Users' });
+  await usersTable.getByRole('row').filter({ hasText: 'Kai Chen' }).getByRole('button', { name: 'Delete' }).click();
+
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toContainText('Kai Chen');
+
+  const deleteRequest = page.waitForRequest((req) => req.method() === 'DELETE' && /\/api\/user\/3$/.test(req.url()));
+  await dialog.getByRole('button', { name: 'Confirm' }).click();
+  await deleteRequest;
+
+  await expect(dialog).toBeHidden();
+  await expect(usersTable).not.toContainText('Kai Chen');
+  // The list is refetched, so the next user moves up onto page 1
+  await expect(usersTable).toContainText('Diner 8');
+});
+
+test('admin cancels deleting a user', async ({ page }) => {
+  await basicInit(page);
+  await loginAsAdmin(page);
+  await page.getByRole('link', { name: 'Admin' }).click();
+
+  const deleteRequests: string[] = [];
+  page.on('request', (req) => {
+    if (req.method() === 'DELETE' && req.url().includes('/api/user/')) deleteRequests.push(req.url());
+  });
+
+  const usersTable = page.getByRole('table', { name: 'Users' });
+  await usersTable.getByRole('row').filter({ hasText: 'Kai Chen' }).getByRole('button', { name: 'Delete' }).click();
+
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+
+  await expect(dialog).toBeHidden();
+  await expect(usersTable).toContainText('Kai Chen');
+  expect(deleteRequests).toEqual([]);
 });
