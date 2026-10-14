@@ -88,8 +88,11 @@ test("add and remove store as franchisee", async({page})=>{
   const provoRow = page.getByRole('row').filter({ hasText: 'Provo Store' });
   await provoRow.getByRole('button', { name: 'Close' }).click();
   await expect(page).toHaveURL(/close-store/);
+  // The URL changes before React renders the confirmation page, so wait for its content
+  await expect(page.getByRole('main')).toContainText('Are you sure you want to close the FrankyPizza store Provo Store');
   await page.getByRole('button', { name: 'Close' }).click();
 
+  await expect(page.getByRole('cell', { name: 'Orem' })).toBeVisible();
   await expect(page.getByRole('cell', { name: 'Provo Store' })).not.toBeVisible();
 });
 
