@@ -170,6 +170,13 @@ async function basicInit(page: Page) {
   await page.goto('/');
 }
 
+async function loginAsAdmin(page: Page) {
+  await page.getByRole('link', { name: 'Login' }).click();
+  await page.getByRole('textbox', { name: 'Email address' }).fill('a@jwt.com');
+  await page.getByRole('textbox', { name: 'Password' }).fill('b');
+  await page.getByRole('button', { name: 'Login' }).click();
+}
+
 test('login', async ({ page }) => {
   await basicInit(page);
   await page.getByRole('link', { name: 'Login' }).click();
@@ -221,10 +228,7 @@ test('purchase with login', async ({ page }) => {
 
 test('Add and remove franchisee as admin', async({page}) =>{
   await basicInit(page);
-  await page.getByRole('link', { name: 'Login' }).click();
-  await page.getByRole('textbox', { name: 'Email address' }).fill('a@jwt.com');
-  await page.getByRole('textbox', { name: 'Password' }).fill('b');
-  await page.getByRole('button', { name: 'Login' }).click();
+  await loginAsAdmin(page);
   await page.getByRole('link', { name: 'Admin' }).click();
   await page.getByRole('button', { name: 'Add Franchise' }).click();
   await page.getByRole('textbox', { name: 'franchise name' }).click();
@@ -265,13 +269,6 @@ test("add and remove store as franchisee", async({page})=>{
 
   await expect(page.getByRole('cell', { name: 'Provo Store' })).not.toBeVisible();
 });
-
-async function loginAsAdmin(page: Page) {
-  await page.getByRole('link', { name: 'Login' }).click();
-  await page.getByRole('textbox', { name: 'Email address' }).fill('a@jwt.com');
-  await page.getByRole('textbox', { name: 'Password' }).fill('b');
-  await page.getByRole('button', { name: 'Login' }).click();
-}
 
 test('admin views paginated list of users', async ({ page }) => {
   await basicInit(page);

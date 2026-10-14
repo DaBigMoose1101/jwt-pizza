@@ -4,8 +4,8 @@ import { useNavigate } from 'react-router-dom';
 import NotFound from './notFound';
 import Button from '../components/button';
 import { pizzaService } from '../service/service';
-import { Franchise, FranchiseList, Role, Store, User } from '../service/pizzaService';
-import { TrashIcon } from '../icons';
+import { Franchise, FranchiseList, Role, Store, User, UserList } from '../service/pizzaService';
+import { CloseIcon, TrashIcon } from '../icons';
 
 interface Props {
   user: User | null;
@@ -22,6 +22,28 @@ export default function AdminDashboard(props: Props) {
       setFranchiseList(await pizzaService.getFranchises(franchisePage, 3, '*'));
     })();
   }, [props.user, franchisePage]);
+
+  const [userList, setUserList] = React.useState<UserList>({ users: [], more: false });
+  const [userPage, setUserPage] = React.useState(1);
+  const [userToDelete, setUserToDelete] = React.useState<User | null>(null);
+
+  React.useEffect(() => {
+    if (Role.isRole(props.user, Role.Admin)) {
+      loadUsers();
+    }
+  }, [props.user, userPage]);
+
+  async function loadUsers() {
+    setUserList(await pizzaService.getUsers(userPage, 10, '*'));
+  }
+
+  async function deleteUser() {
+    if (userToDelete) {
+      await pizzaService.deleteUser(userToDelete);
+      await loadUsers();
+    }
+    setUserToDelete(null);
+  }
 
   function createFranchise() {
     navigate('/admin-dashboard/create-franchise');
@@ -123,6 +145,76 @@ export default function AdminDashboard(props: Props) {
         <div>
           <Button className="w-36 text-xs sm:text-sm sm:w-64" title="Add Franchise" onPress={createFranchise} />
         </div>
+        <div className="text-start py-8 px-4 sm:px-6 lg:px-8">
+          <h3 className="text-neutral-100 text-xl">Users</h3>
+          <div className="bg-neutral-100 overflow-clip my-4">
+            <table aria-label="Users" className="min-w-full divide-y divide-gray-200">
+              <thead className="uppercase text-neutral-100 bg-slate-400 border-b-2 border-gray-500">
+                <tr>
+                  {['Name', 'Email', 'Role', 'Action'].map((header) => (
+                    <th key={header} scope="col" className="px-6 py-3 text-center text-xs font-medium">
+                      {header}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-200">
+                {userList.users.map((user) => (
+                  <tr key={user.id} className="border-neutral-500 border-t-2">
+                    <td className="text-start px-2 whitespace-nowrap text-sm text-gray-800">{user.name}</td>
+                    <td className="text-start px-2 whitespace-nowrap text-sm text-gray-800">{user.email}</td>
+                    <td className="text-start px-2 whitespace-nowrap text-sm text-gray-800">{user.roles?.map((r) => r.role).join(', ')}</td>
+                    <td className="px-6 py-1 whitespace-nowrap text-end text-sm font-medium">
+                      <button type="button" className="px-2 py-1 inline-flex items-center gap-x-2 text-sm font-semibold rounded-lg border border-1 border-orange-400 text-orange-400 hover:border-orange-800 hover:text-orange-800" onClick={() => setUserToDelete(user)}>
+                        <TrashIcon />
+                        Delete
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr>
+                  <td colSpan={4} className="text-end text-sm font-medium">
+                    <button className="w-12 p-1 text-sm font-semibold rounded-lg border border-transparent bg-white text-grey border-grey m-1 hover:bg-orange-200 disabled:bg-neutral-300" onClick={() => setUserPage(userPage - 1)} disabled={userPage <= 1}>
+                      «
+                    </button>
+                    <button className="w-12 p-1 text-sm font-semibold rounded-lg border border-transparent bg-white text-grey border-grey m-1 hover:bg-orange-200 disabled:bg-neutral-300" onClick={() => setUserPage(userPage + 1)} disabled={!userList.more}>
+                      »
+                    </button>
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
+        {userToDelete && (
+          <div role="dialog" aria-modal="true" aria-labelledby="delete-user-title" className="size-full fixed top-0 start-0 z-[80] bg-black/50 overflow-x-hidden overflow-y-auto">
+            <div className="mt-17 sm:max-w-lg sm:w-full m-3 sm:mx-auto">
+              <div className="w-full flex flex-col bg-white border shadow-sm rounded-xl">
+                <div className="flex justify-between items-center py-3 px-4 border-b bg-slate-200 rounded-t-xl">
+                  <h3 id="delete-user-title" className="font-bold text-gray-800">
+                    Delete user
+                  </h3>
+                  <button type="button" aria-label="Close" className="flex justify-center items-center size-7 text-sm font-semibold rounded-full border border-transparent text-gray-800 hover:bg-gray-100" onClick={() => setUserToDelete(null)}>
+                    <CloseIcon className="" />
+                  </button>
+                </div>
+                <div className="p-4 text-start text-gray-800">
+                  Are you sure you want to delete <span className="font-semibold">{userToDelete.name}</span>? This cannot be undone.
+                </div>
+                <div className="flex justify-end items-center gap-x-2 py-3 px-4 border-t bg-slate-200 rounded-b-xl">
+                  <button type="button" className="py-2 px-3 inline-flex items-center gap-x-2 text-sm font-medium rounded-lg border border-gray-200 bg-white text-gray-800 shadow-sm hover:bg-gray-50" onClick={() => setUserToDelete(null)}>
+                    Cancel
+                  </button>
+                  <button type="button" className="py-2 px-3 inline-flex items-center gap-x-2 text-sm font-medium rounded-lg border border-orange-400 bg-orange-400 text-white shadow-sm hover:bg-orange-600" onClick={deleteUser}>
+                    Confirm
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </View>
     );
   }
